@@ -1,0 +1,750 @@
+from pathlib import Path
+
+html = r'''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>No Man's Sky — 256 Galaxy Map</title>
+<style>
+    * { box-sizing: border-box; }
+
+    body {
+        margin: 0;
+        padding: 24px;
+        background: radial-gradient(circle at top, #111827 0%, #020617 65%);
+        color: #e5e7eb;
+        font-family: Arial, Helvetica, sans-serif;
+    }
+
+    h1 {
+        text-align: center;
+        margin-bottom: 10px;
+        font-size: 2.5rem;
+        letter-spacing: 1px;
+    }
+
+    .subtitle {
+        text-align: center;
+        margin-bottom: 24px;
+        color: #94a3b8;
+    }
+
+    .legend {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 28px;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 999px;
+        padding: 8px 14px;
+    }
+
+    .dot { width: 14px; height: 14px; border-radius: 50%; }
+    .normal-dot { background: #38bdf8; }
+    .lush-dot { background: #22c55e; }
+    .harsh-dot { background: #ef4444; }
+    .empty-dot { background: #8b5cf6; }
+
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 10px;
+    }
+
+    .galaxy {
+        position: relative;
+        border-radius: 14px;
+        padding: 10px 38px 10px 10px;
+        border: 1px solid rgba(255,255,255,0.08);
+        backdrop-filter: blur(8px);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+        user-select: none;
+    }
+
+    .galaxy:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 0 14px rgba(255,255,255,0.12);
+    }
+
+    .normal { background: rgba(56,189,248,0.14); border-color: rgba(56,189,248,0.4); }
+    .lush { background: rgba(34,197,94,0.14); border-color: rgba(34,197,94,0.4); }
+    .harsh { background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.4); }
+    .empty { background: rgba(139,92,246,0.14); border-color: rgba(139,92,246,0.4); }
+
+    .number { font-size: 0.75rem; color: #cbd5e1; margin-bottom: 4px; }
+    .name { font-size: 0.95rem; font-weight: bold; margin-bottom: 6px; }
+    .type {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: bold;
+        text-transform: uppercase;
+        background: rgba(255,255,255,0.08);
+    }
+
+    .check {
+        position: absolute;
+        right: 10px;
+        top: 32px;
+        width: 18px;
+        height: 18px;
+        border-radius: 4px;
+        border: 2px solid rgba(255,255,255,0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        color: transparent;
+        transition: all 0.2s ease;
+    }
+
+    .visited .check {
+        background: #22c55e;
+        border-color: #22c55e;
+        color: #0b1220;
+        font-weight: bold;
+    }
+
+    .galaxy-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+    }
+
+    .galaxy-btn {
+        border: 1px solid rgba(255,255,255,.2);
+        background: rgba(255,255,255,.08);
+        color: #e5e7eb;
+        padding: 6px 9px;
+        border-radius: 7px;
+        cursor: pointer;
+        font-size: 11px;
+    }
+
+    .galaxy-btn:hover { background: rgba(56,189,248,.25); }
+
+    .address-count {
+        color: #38bdf8;
+        font-size: 11px;
+        margin-top: 6px;
+    }
+
+    footer {
+        text-align: center;
+        margin-top: 28px;
+        color: #94a3b8;
+        font-size: 0.9rem;
+    }
+
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background: rgba(0,0,0,.82);
+        align-items: center;
+        justify-content: center;
+        padding: 15px;
+    }
+
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+        width: 100%;
+        max-width: 680px;
+        max-height: 92vh;
+        overflow-y: auto;
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 20px 60px #000;
+    }
+
+    .modal h2 { margin-top: 0; color: #38bdf8; }
+    .modal h3 { margin-bottom: 8px; }
+
+    .modal-close {
+        float: right;
+        background: transparent;
+        border: none;
+        color: white;
+        font-size: 25px;
+        cursor: pointer;
+    }
+
+    .glyph-slots {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 8px;
+        margin: 15px 0;
+    }
+
+    .glyph-slot {
+        min-height: 58px;
+        background: #1e293b;
+        border: 2px solid #475569;
+        border-radius: 9px;
+        padding: 8px 4px;
+        text-align: center;
+        cursor: pointer;
+        color: white;
+    }
+
+    .glyph-slot.selected { border-color: #38bdf8; background: #164e63; }
+    .glyph-slot.active { outline: 2px solid #facc15; outline-offset: 2px; }
+
+    .glyph-symbol { display: block; font-size: 22px; line-height: 1.2; }
+    .glyph-index { display: block; color: #cbd5e1; font-size: 10px; margin-top: 4px; }
+
+    .glyph-picker {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin: 12px 0 18px;
+    }
+
+    .glyph-option {
+        background: #1e293b;
+        border: 1px solid #475569;
+        border-radius: 8px;
+        color: white;
+        padding: 10px 5px;
+        cursor: pointer;
+        min-height: 66px;
+    }
+
+    .glyph-option:hover { background: #0369a1; }
+    .glyph-option .glyph-symbol { font-size: 25px; }
+    .glyph-option .glyph-name { font-size: 11px; color: #cbd5e1; }
+
+    .modal input {
+        width: 100%;
+        padding: 12px;
+        margin: 10px 0;
+        background: #1e293b;
+        border: 1px solid #475569;
+        border-radius: 8px;
+        color: white;
+        font-size: 14px;
+    }
+
+    .modal-save {
+        width: 100%;
+        padding: 12px;
+        background: #0284c7;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 14px;
+    }
+
+    .modal-save:hover { background: #0369a1; }
+
+    .saved-address {
+        background: #1e293b;
+        padding: 12px;
+        border-radius: 9px;
+        margin: 10px 0;
+        border: 1px solid #334155;
+        overflow-wrap: anywhere;
+    }
+
+    .saved-glyphs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin: 10px 0;
+    }
+
+    .saved-glyph {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-width: 35px;
+        min-height: 42px;
+        padding: 3px;
+        border-radius: 6px;
+        background: #0f172a;
+        font-size: 20px;
+    }
+
+    .saved-glyph small { font-size: 9px; color: #94a3b8; }
+    .saved-comment { color: #cbd5e1; font-size: 13px; }
+
+    .address-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+    .address-actions button {
+        padding: 7px 12px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        color: white;
+        background: #334155;
+    }
+
+    .address-actions .delete { background: #991b1b; }
+
+    .empty-message { color: #94a3b8; font-size: 13px; padding: 8px 0; }
+    .hint { color: #94a3b8; font-size: 12px; line-height: 1.5; }
+
+    @media(max-width: 520px) {
+        body { padding: 14px; }
+        h1 { font-size: 1.8rem; }
+        .modal { padding: 17px; }
+        .glyph-slots { grid-template-columns: repeat(4, 1fr); }
+    }
+</style>
+</head>
+<body>
+
+<h1>No Man's Sky — 256 Galaxy Map</h1>
+<p class="subtitle">Track the galaxies you've visited and save portal glyph addresses.</p>
+
+<div class="legend">
+    <div class="legend-item"><span class="dot normal-dot"></span> Normal</div>
+    <div class="legend-item"><span class="dot lush-dot"></span> Lush</div>
+    <div class="legend-item"><span class="dot harsh-dot"></span> Harsh</div>
+    <div class="legend-item"><span class="dot empty-dot"></span> Empty</div>
+</div>
+
+<div class="grid" id="galaxyGrid"></div>
+
+<footer>
+    Galaxy progress and glyph addresses are saved in this browser.
+</footer>
+
+<div class="modal-overlay" id="addressModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+        <button class="modal-close" id="closeModal" aria-label="Close">×</button>
+        <h2 id="modalTitle">Galaxy Glyph Addresses</h2>
+
+        <h3>Saved addresses</h3>
+        <div id="savedAddresses"></div>
+
+        <hr style="border-color:#334155; margin:20px 0">
+
+        <h3 id="formTitle">Add a new address</h3>
+        <p class="hint">Choose a position below, then select one of the 16 glyph symbols. Fill all 12 positions before saving.</p>
+
+        <div class="glyph-slots" id="glyphSlots"></div>
+        <p class="hint" id="glyphInstruction">Editing position 1 of 12.</p>
+        <div class="glyph-picker" id="glyphPicker"></div>
+
+        <input type="text" id="addressComment" maxlength="120"
+               placeholder="Comment (e.g. Paradise World, Gold, Indium)">
+
+        <button class="modal-save" id="saveAddress">Save Glyph Address</button>
+        <button class="galaxy-btn" id="clearForm" style="width:100%; margin-top:8px">
+            Clear Form
+        </button>
+    </div>
+</div>
+
+<script>
+'use strict';
+
+const galaxies = [
+[1,'Euclid'], [2,'Hilbert'], [3,'Calypso'], [4,'Hesperius'], [5,'Hyades'],
+[6,'Ickjamatew'], [7,'Budullangr'], [8,'Kikolgallr'], [9,'Eltiensleen'], [10,'Eissentam'],
+[11,'Elkupalos'], [12,'Aptarkaba'], [13,'Ontiniangp'], [14,'Odiwagiri'], [15,'Ogtialabi'],
+[16,'Muhacksonto'], [17,'Hitonskyer'], [18,'Rerasmutul'], [19,'Isdoraijung'], [20,'Doctinawyra'],
+[21,'Loychazinq'], [22,'Zukasizawa'], [23,'Ekwathore'], [24,'Yeberhahne'], [25,'Twerbetek'],
+[26,'Sivarates'], [27,'Eajerandal'], [28,'Aldukesci'], [29,'Wotyarogii'], [30,'Sudzerbal'],
+[31,'Maupenzhay'], [32,'Sugueziume'], [33,'Brogoweldian'], [34,'Ehbogdenbu'], [35,'Ijsenufryos'],
+[36,'Nipikulha'], [37,'Autsurabin'], [38,'Lusontrygiamh'], [39,'Rewmanawa'], [40,'Ethiophodhe'],
+[41,'Urastrykle'], [42,'Xobeurindj'], [43,'Oniijialdu'], [44,'Wucetosucc'], [45,'Ebyeloofdud'],
+[46,'Odyavanta'], [47,'Milekistri'], [48,'Waferganh'], [49,'Agnusopwit'], [50,'Teyaypilny'],
+[51,'Zalienkosm'], [52,'Ladgudiraf'], [53,'Mushonponte'], [54,'Amsentisz'], [55,'Fladiselm'],
+[56,'Laanawemb'], [57,'Ilkerloor'], [58,'Davanossi'], [59,'Ploehrliou'], [60,'Corpinyaya'],
+[61,'Leckandmeram'], [62,'Quulngais'], [63,'Nokokipsechl'], [64,'Rinblodesa'], [65,'Loydporpen'],
+[66,'Ibtrevskip'], [67,'Elkowaldb'], [68,'Heholhofsko'], [69,'Yebrilowisod'], [70,'Husalvangewi'],
+[71,"Ovna'uesed"], [72,'Bahibusey'], [73,'Nuybeliaure'], [74,'Doshawchuc'], [75,'Ruckinarkh'],
+[76,'Thorettac'], [77,'Nuponoparau'], [78,'Moglaschil'], [79,'Uiweupose'], [80,'Nasmilete'],
+[81,'Ekdaluskin'], [82,'Hakapanasy'], [83,'Dimonimba'], [84,'Cajaccari'], [85,'Olonerovo'],
+[86,'Umlanswick'], [87,'Henayliszm'], [88,'Utzenmate'], [89,'Umirpaiya'], [90,'Paholiang'],
+[91,'Iaereznika'], [92,'Yudukagath'], [93,'Boealalosnj'], [94,'Yaevarcko'], [95,'Coellosipp'],
+[96,'Wayndohalou'], [97,'Smoduraykl'], [98,'Apmaneessu'], [99,'Hicanpaav'], [100,'Akvasanta'],
+[101,'Tuychelisaor'], [102,'Rivskimbe'], [103,'Daksanquix'], [104,'Kissonlin'], [105,'Aediabiel'],
+[106,'Ulosaginyik'], [107,'Roclaytonycar'], [108,'Kichiaroa'], [109,'Irceauffey'], [110,'Nudquathsenfe'],
+[111,'Getaizakaal'], [112,'Hansolmien'], [113,'Bloytisagra'], [114,'Ladsenlay'], [115,'Luyugoslasr'],
+[116,'Ubredhatk'], [117,'Cidoniana'], [118,'Jasinessa'], [119,'Torweierf'], [120,'Saffneckm'],
+[121,'Thnistner'], [122,'Dotusingg'], [123,'Luleukous'], [124,'Jelmandan'], [125,'Otimanaso'],
+[126,'Enjaxusanto'], [127,'Sezviktorew'], [128,'Zikehpm'], [129,'Bephembah'], [130,'Broomerrai'],
+[131,'Meximicka'], [132,'Venessika'], [133,'Gaiteseling'], [134,'Zosakasiro'], [135,'Drajayanes'],
+[136,'Ooibekuar'], [137,'Urckiansi'], [138,'Dozivadido'], [139,'Emiekereks'], [140,'Meykinunukur'],
+[141,'Kimycuristh'], [142,'Roansfien'], [143,'Isgarmeso'], [144,'Daitibeli'], [145,'Gucuttarik'],
+[146,'Enlaythie'], [147,'Drewweste'], [148,'Akbulkabi'], [149,'Homskiw'], [150,'Zavainlani'],
+[151,'Jewijkmas'], [152,'Itlhotagra'], [153,'Podalicess'], [154,'Hiviusauer'], [155,'Halsebenk'],
+[156,'Puikitoac'], [157,'Gaybakuaria'], [158,'Grbodubhe'], [159,'Rycempler'], [160,'Indjalala'],
+[161,'Fontenikk'], [162,'Pasycihelwhee'], [163,'Ikbaksmit'], [164,'Telicianses'], [165,'Oyleyzhan'],
+[166,'Uagerosat'], [167,'Impoxectin'], [168,'Twoodmand'], [169,'Hilfsesorbs'], [170,'Ezdaranit'],
+[171,'Wiensanshe'], [172,'Ewheelonc'], [173,'Litzmantufa'], [174,'Emarmatosi'], [175,'Mufimbomacvi'],
+[176,'Wongquarum'], [177,'Hapirajua'], [178,'Igbinduina'], [179,'Wepaitvas'], [180,'Sthatigudi'],
+[181,'Yekathsebehn'], [182,'Ebedeagurst'], [183,'Nolisonia'], [184,'Ulexovitab'], [185,'Iodhinxois'],
+[186,'Irroswitzs'], [187,'Bifredait'], [188,'Beiraghedwe'], [189,'Yeonatlak'], [190,'Cugnatachh'],
+[191,'Nozoryenki'], [192,'Ebralduri'], [193,'Evcickcandj'], [194,'Ziybosswin'], [195,'Heperclait'],
+[196,'Sugiuniam'], [197,'Aaseertush'], [198,'Uglyestemaa'], [199,'Horeroedsh'], [200,'Drundemiso'],
+[201,'Ityanianat'], [202,'Purneyrine'], [203,'Dokiessmat'], [204,'Nupiacheh'], [205,'Dihewsonj'],
+[206,'Rudrailhik'], [207,'Tweretnort'], [208,'Snatreetze'], [209,'Iwundaracos'], [210,'Digarlewena'],
+[211,'Erquagsta'], [212,'Logovoloin'], [213,'Boyaghosganh'], [214,'Kuolungau'], [215,'Pehneldept'],
+[216,'Yevettiiqidcon'], [217,'Sahliacabru'], [218,'Noggalterpor'], [219,'Chmageaki'], [220,'Veticueca'],
+[221,'Vittesbursul'], [222,'Nootanore'], [223,'Innebdjerah'], [224,'Kisvarcini'], [225,'Cuzcogipper'],
+[226,'Pamanhermonsu'], [227,'Brotoghek'], [228,'Mibittara'], [229,'Huruahili'], [230,'Raldwicarn'],
+[231,'Ezdartlic'], [232,'Badesclema'], [233,'Isenkeyan'], [234,'Iadoitesu'], [235,'Yagrovoisi'],
+[236,'Ewcomechio'], [237,'Inunnunnoda'], [238,'Dischiutun'], [239,'Yuwarugha'], [240,'Ialmendra'],
+[241,'Reponudrle'], [242,'Rinjanagrbo'], [243,'Zeziceloh'], [244,'Oeileutasc'], [245,'Zicniijinis'],
+[246,'Dugnowarilda'], [247,'Neuxoisan'], [248,'Ilmenhorn'], [249,'Rukwatsuku'], [250,'Nepitzaspru'],
+[251,'Chcehoemig'], [252,'Haffneyrin'], [253,'Uliciawai'], [254,'Tuhgrespod'], [255,'Iousongola'],
+[256,'Odyalutai']
+];
+
+const lush = new Set([10,19,30,39,50,59,70,79,90,99,110,119,130,139,150,159,170,179,190,199,210,219,230,239,250]);
+const harsh = new Set([3,15,23,35,43,55,63,75,83,95,103,115,123,135,143,155,163,175,183,195,203,215,223,235,243,255]);
+const empty = new Set([7,12,27,32,47,52,67,72,87,92,107,112,127,132,147,152,167,172,187,192,207,212,227,232,247,252]);
+
+function getType(id) {
+    if (lush.has(id)) return 'lush';
+    if (harsh.has(id)) return 'harsh';
+    if (empty.has(id)) return 'empty';
+    return 'normal';
+}
+
+function label(type) {
+    return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+/*
+ * These are temporary text symbols to make the 16 glyph choices usable.
+ * They are not official No Man's Sky glyph artwork.
+ * The saved values are the glyph indexes (0-15), one for each of 12 positions.
+ */
+const GLYPHS = ['☀','🐦','🦋','♨','⚡','🌀','☯','♆','♜','♢','♧','♤','✦','✧','☾','⚙'];
+const GLYPH_NAMES = [
+    'Sunset','Bird','Butterfly','Dragon','Face','Galaxy','Atlas','Tent',
+    'Tree','Eclipse','Boat','Fish','Anomaly','Ocean','Moon','Robot'
+];
+
+const grid = document.getElementById('galaxyGrid');
+const modal = document.getElementById('addressModal');
+
+let currentGalaxy = null;
+let editingAddress = null;
+let activeSlot = 0;
+let selectedGlyphs = Array(12).fill(null);
+
+function readStorage(key) {
+    try {
+        return JSON.parse(localStorage.getItem(key) || '{}');
+    } catch (error) {
+        console.warn(`Could not read ${key} from local storage:`, error);
+        return {};
+    }
+}
+
+function getVisited() { return readStorage('visitedGalaxies'); }
+function getAddresses() { return readStorage('galaxyAddresses'); }
+
+function writeStorage(key, value) {
+    try {
+        localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+        alert('Your browser could not save this data. Check its storage settings.');
+        console.error(error);
+    }
+}
+
+function toggleVisited(id) {
+    const visited = getVisited();
+    visited[id] = !visited[id];
+    writeStorage('visitedGalaxies', visited);
+    renderGrid();
+}
+
+function renderGrid() {
+    grid.innerHTML = '';
+    const visited = getVisited();
+    const addresses = getAddresses();
+
+    galaxies.forEach(([id, name]) => {
+        const type = getType(id);
+        const count = Array.isArray(addresses[id]) ? addresses[id].length : 0;
+        const card = document.createElement('div');
+        card.className = `galaxy ${type}${visited[id] ? ' visited' : ''}`;
+
+        const number = document.createElement('div');
+        number.className = 'number';
+        number.textContent = `#${id}`;
+
+        const title = document.createElement('div');
+        title.className = 'name';
+        title.textContent = name;
+
+        const typeLabel = document.createElement('span');
+        typeLabel.className = 'type';
+        typeLabel.textContent = label(type);
+
+        const check = document.createElement('div');
+        check.className = 'check';
+        check.textContent = '✓';
+
+        const actions = document.createElement('div');
+        actions.className = 'galaxy-actions';
+
+        const visitButton = document.createElement('button');
+        visitButton.className = 'galaxy-btn';
+        visitButton.textContent = visited[id] ? '✓ Visited' : 'Mark Visited';
+        visitButton.addEventListener('click', () => toggleVisited(id));
+
+        const addressButton = document.createElement('button');
+        addressButton.className = 'galaxy-btn';
+        addressButton.textContent = 'Glyph Addresses';
+        addressButton.addEventListener('click', () => openAddressModal(id, name));
+
+        actions.append(visitButton, addressButton);
+
+        const countLabel = document.createElement('div');
+        countLabel.className = 'address-count';
+        countLabel.textContent = `${count} saved address${count === 1 ? '' : 'es'}`;
+
+        card.append(number, title, typeLabel, check, actions, countLabel);
+        grid.appendChild(card);
+    });
+}
+
+function openAddressModal(id, name) {
+    currentGalaxy = id;
+    editingAddress = null;
+    document.getElementById('modalTitle').textContent = `#${id} — ${name}`;
+    modal.classList.add('active');
+    renderSavedAddresses();
+    resetAddressForm();
+}
+
+function closeAddressModal() {
+    modal.classList.remove('active');
+    currentGalaxy = null;
+}
+
+function resetAddressForm() {
+    editingAddress = null;
+    activeSlot = 0;
+    selectedGlyphs = Array(12).fill(null);
+    document.getElementById('formTitle').textContent = 'Add a new address';
+    document.getElementById('addressComment').value = '';
+    renderGlyphSlots();
+    renderGlyphPicker();
+}
+
+function renderGlyphSlots() {
+    const container = document.getElementById('glyphSlots');
+    container.innerHTML = '';
+
+    selectedGlyphs.forEach((glyph, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'glyph-slot';
+        if (glyph !== null) button.classList.add('selected');
+        if (activeSlot === index) button.classList.add('active');
+
+        const symbol = document.createElement('span');
+        symbol.className = 'glyph-symbol';
+        symbol.textContent = glyph !== null ? GLYPHS[glyph] : '＋';
+
+        const position = document.createElement('span');
+        position.className = 'glyph-index';
+        position.textContent = `Position ${index + 1}`;
+
+        button.append(symbol, position);
+        button.addEventListener('click', () => {
+            activeSlot = index;
+            renderGlyphSlots();
+        });
+        container.appendChild(button);
+    });
+
+    document.getElementById('glyphInstruction').textContent =
+        `Editing position ${activeSlot + 1} of 12.`;
+}
+
+function renderGlyphPicker() {
+    const container = document.getElementById('glyphPicker');
+    container.innerHTML = '';
+
+    GLYPHS.forEach((glyph, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'glyph-option';
+
+        const symbol = document.createElement('span');
+        symbol.className = 'glyph-symbol';
+        symbol.textContent = glyph;
+
+        const name = document.createElement('span');
+        name.className = 'glyph-name';
+        name.textContent = `${index} — ${GLYPH_NAMES[index]}`;
+
+        button.append(symbol, name);
+        button.addEventListener('click', () => {
+            selectedGlyphs[activeSlot] = index;
+            const nextEmpty = selectedGlyphs.findIndex(value => value === null);
+            activeSlot = nextEmpty !== -1 ? nextEmpty : (activeSlot + 1) % 12;
+            renderGlyphSlots();
+        });
+        container.appendChild(button);
+    });
+}
+
+function renderSavedAddresses() {
+    const container = document.getElementById('savedAddresses');
+    const addresses = getAddresses();
+    const list = Array.isArray(addresses[currentGalaxy]) ? addresses[currentGalaxy] : [];
+    container.innerHTML = '';
+
+    if (list.length === 0) {
+        const message = document.createElement('div');
+        message.className = 'empty-message';
+        message.textContent = 'No glyph addresses saved for this galaxy yet.';
+        container.appendChild(message);
+        return;
+    }
+
+    list.forEach((address, index) => {
+        const item = document.createElement('div');
+        item.className = 'saved-address';
+
+        const heading = document.createElement('strong');
+        heading.textContent = `Address ${index + 1}`;
+
+        const glyphDisplay = document.createElement('div');
+        glyphDisplay.className = 'saved-glyphs';
+
+        address.glyphs.forEach((glyphIndex, position) => {
+            const glyph = document.createElement('span');
+            glyph.className = 'saved-glyph';
+            glyph.textContent = GLYPHS[glyphIndex] ?? '?';
+
+            const small = document.createElement('small');
+            small.textContent = position + 1;
+            glyph.appendChild(small);
+            glyphDisplay.appendChild(glyph);
+        });
+
+        const comment = document.createElement('div');
+        comment.className = 'saved-comment';
+        comment.textContent = address.comment || 'No comment';
+
+        const actions = document.createElement('div');
+        actions.className = 'address-actions';
+
+        const editButton = document.createElement('button');
+        editButton.type = 'button';
+        editButton.textContent = 'Edit';
+        editButton.addEventListener('click', () => editAddress(index));
+
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.textContent = 'Delete';
+        deleteButton.className = 'delete';
+        deleteButton.addEventListener('click', () => deleteAddress(index));
+
+        actions.append(editButton, deleteButton);
+        item.append(heading, glyphDisplay, comment, actions);
+        container.appendChild(item);
+    });
+}
+
+function saveAddress() {
+    if (selectedGlyphs.some(glyph => glyph === null)) {
+        alert('Please select all 12 glyph positions before saving.');
+        return;
+    }
+
+    const addresses = getAddresses();
+    if (!Array.isArray(addresses[currentGalaxy])) {
+        addresses[currentGalaxy] = [];
+    }
+
+    const entry = {
+        glyphs: [...selectedGlyphs],
+        comment: document.getElementById('addressComment').value.trim()
+    };
+
+    if (editingAddress !== null) {
+        addresses[currentGalaxy][editingAddress] = entry;
+    } else {
+        addresses[currentGalaxy].push(entry);
+    }
+
+    writeStorage('galaxyAddresses', addresses);
+    renderSavedAddresses();
+    renderGrid();
+    resetAddressForm();
+}
+
+function editAddress(index) {
+    const addresses = getAddresses();
+    const address = addresses[currentGalaxy]?.[index];
+    if (!address) return;
+
+    editingAddress = index;
+    selectedGlyphs = [...address.glyphs];
+    activeSlot = 0;
+
+    document.getElementById('formTitle').textContent = 'Edit glyph address';
+    document.getElementById('addressComment').value = address.comment || '';
+    renderGlyphSlots();
+    renderGlyphPicker();
+}
+
+function deleteAddress(index) {
+    if (!confirm('Delete this glyph address?')) return;
+
+    const addresses = getAddresses();
+    if (!Array.isArray(addresses[currentGalaxy])) return;
+
+    addresses[currentGalaxy].splice(index, 1);
+    writeStorage('galaxyAddresses', addresses);
+    renderSavedAddresses();
+    renderGrid();
+    resetAddressForm();
+}
+
+document.getElementById('closeModal').addEventListener('click', closeAddressModal);
+document.getElementById('saveAddress').addEventListener('click', saveAddress);
+document.getElementById('clearForm').addEventListener('click', resetAddressForm);
+
+modal.addEventListener('click', event => {
+    if (event.target === modal) closeAddressModal();
+});
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && modal.classList.contains('active')) {
+        closeAddressModal();
+    }
+});
+
+renderGrid();
+</script>
+
+</body>
+</html>
+'''
+
+path = Path("/mnt/data/nms-galaxy-map-test.html")
+path.write_text(html, encoding="utf-8")
+print(f"Created {path} ({len(html):,} characters; {len(galaxies) if 'galaxies' in globals() else 256} galaxy entries included).")
