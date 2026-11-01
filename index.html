@@ -30,6 +30,27 @@
         color: #94a3b8;
     }
 
+    .backup-toolbar {
+        position: absolute;
+        top: 24px;
+        right: 24px;
+        display: flex;
+        gap: 8px;
+    }
+
+    .backup-btn {
+        background: rgba(56,189,248,0.15);
+        border: 1px solid rgba(56,189,248,0.5);
+        color: #e5e7eb;
+        padding: 9px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: bold;
+    }
+
+    .backup-btn:hover { background: rgba(56,189,248,0.35); }
+
     .legend {
         display: flex;
         justify-content: center;
@@ -307,6 +328,12 @@
         h1 { font-size: 1.8rem; }
         .modal { padding: 17px; }
         .glyph-slots { grid-template-columns: repeat(4, 1fr); }
+        .backup-toolbar {
+            position: static;
+            justify-content: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
     }
 </style>
 </head>
@@ -314,6 +341,12 @@
 
 <h1>No Man's Sky — 256 Galaxy Map</h1>
 <p class="subtitle">Track the galaxies you've visited and save portal glyph addresses.</p>
+
+<div class="backup-toolbar">
+    <button class="backup-btn" id="exportBackup" type="button">↓ Export Backup</button>
+    <button class="backup-btn" id="importBackup" type="button">↑ Import Backup</button>
+    <input type="file" id="backupFile" accept=".json,application/json" hidden>
+</div>
 
 <div class="legend">
     <div class="legend-item"><span class="dot normal-dot"></span> Normal</div>
@@ -738,11 +771,191 @@ document.addEventListener('keydown', event => {
     }
 });
 
+// ==========================================
+// BACKUP SYSTEM
+// Exports/imports the existing Local Storage
+// keys without changing their structure.
+// ==========================================
+
+function exportBackup() {
+    const backup = {
+        app: "No Man's Sky — 256 Galaxy Map",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        data: {
+            visitedGalaxies: getVisited(),
+            galaxyAddresses: getAddresses()
+        }
+    };
+
+    const blob = new Blob(
+        [JSON.stringify(backup, null, 2)],
+        { type: 'application/json' }
+    );
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+
+    link.href = url;
+    link.download = `nms-galaxy-backup-${date}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function validateBackup(backup) {
+    if (!backup ||
+        typeof backup !== 'object' ||
+        backup.app !== "No Man's Sky — 256 Galaxy Map" ||
+        backup.version !== 1 ||
+        !backup.data ||
+        typeof backup.data !== 'object' ||
+        Array.isArray(backup.data)) {
+        throw new Error('Invalid backup file or unsupported version.');
+    }
+
+    const { visitedGalaxies, galaxyAddresses } = backup.data;
+
+    if (!visitedGalaxies ||
+        typeof visitedGalaxies !== 'object' ||
+        Array.isArray(visitedGalaxies) ||
+        !galaxyAddresses ||
+        typeof galaxyAddresses !== 'object' ||
+        Array.isArray(galaxyAddresses)) {
+        throw new Error('Backup data is incomplete.');
+    }
+
+    for (const [id, visited] of Object.entries(visitedGalaxies)) {
+        if (!galaxies.some(galaxy => galaxy[0] === Number(id)) ||
+            typeof visited !== 'boolean') {
+            throw new Error('Invalid galaxy progress data.');
+        }
+    }
+
+    for (const [id, addresses] of Object.entries(galaxyAddresses)) {
+        if (!galaxies.some(galaxy => galaxy[0] === Number(id)) ||
+            !Array.isArray(addresses)) {
+            throw new Error('Invalid galaxy address data.');
+        }
+
+        for (const address of addresses) {
+            if (!address ||
+                typeof address !== 'object' ||
+                Array.isArray(address) ||
+                !Array.isArray(address.glyphs) ||
+                address.glyphs.length !== 12 ||
+                !address.glyphs.every(
+                    glyph => Number.isInteger(glyph) &&
+                             glyph >= 0 &&
+                             glyph <= 15
+                ) ||
+                typeof address.comment !== 'string' ||
+                address.comment.length > 120) {
+                throw new Error('Invalid glyph address found.');
+            }
+        }
+    }
+
+    return true;
+}
+
+function importBackup(file) {
+    if (!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+        try {
+            const backup = JSON.parse(reader.result);
+            validateBackup(backup);
+
+            const confirmed = confirm(
+                'Import this backup?\n\n' +
+                'Your current galaxy progress and saved glyph addresses ' +
+                'will be replaced by the backup.'
+            );
+
+            if (!confirmed) return;
+
+            const oldVisited = localStorage.getItem('visitedGalaxies');
+            const oldAddresses = localStorage.getItem('galaxyAddresses');
+
+            try {
+                localStorage.setItem(
+                    'visitedGalaxies',
+                    JSON.stringify(backup.data.visitedGalaxies)
+                );
+                localStorage.setItem(
+                    'galaxyAddresses',
+                    JSON.stringify(backup.data.galaxyAddresses)
+                );
+            } catch (error) {
+                // Roll back the first write if the second write fails.
+                try {
+                    if (oldVisited === null) {
+                        localStorage.removeItem('visitedGalaxies');
+                    } else {
+                        localStorage.setItem('visitedGalaxies', oldVisited);
+                    }
+
+                    if (oldAddresses === null) {
+                        localStorage.removeItem('galaxyAddresses');
+                    } else {
+                        localStorage.setItem('galaxyAddresses', oldAddresses);
+                    }
+                } catch (rollbackError) {
+                    console.error('Could not restore previous local data:', rollbackError);
+                }
+
+                throw error;
+            }
+
+            renderGrid();
+
+            if (currentGalaxy !== null && modal.classList.contains('active')) {
+                renderSavedAddresses();
+                resetAddressForm();
+            }
+
+            alert('Backup successfully imported!');
+        } catch (error) {
+            console.error('Backup import failed:', error);
+            alert('Could not import backup:\n' + error.message);
+        }
+    };
+
+    reader.onerror = () => {
+        alert('Could not read the selected backup file.');
+    };
+
+    reader.readAsText(file);
+}
+
+document.getElementById('exportBackup').addEventListener('click', exportBackup);
+
+document.getElementById('importBackup').addEventListener('click', () => {
+    document.getElementById('backupFile').click();
+});
+
+document.getElementById('backupFile').addEventListener('change', event => {
+    const file = event.target.files[0];
+    if (file) importBackup(file);
+    event.target.value = '';
+});
+
+// ==========================================
+// END BACKUP SYSTEM
+// ==========================================
+
 renderGrid();
 </script>
 
 </body>
 </html>
+'''
 
 
 
